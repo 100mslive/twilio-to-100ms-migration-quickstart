@@ -1,11 +1,8 @@
 'use strict';
 
-const { createLocalTracks } = require('twilio-video');
+const { selectLocalPeer, selectVideoTrackByID, selectDevices, selectAudioTrackByID} = require('@100mslive/hms-video-store');
+const { hmsActions, hmsStore } = require('./hms');
 
-const localTracks = {
-  audio: null,
-  video: null
-};
 
 /**
  * Start capturing media from the given input device.
@@ -14,18 +11,15 @@ const localTracks = {
  * @param render - the render callback
  * @returns {Promise<void>} Promise that is resolved if successful
  */
-async function applyInputDevice(kind, deviceId, render) {
-  // Create a new LocalTrack from the given Device ID.
-  const [track] = await createLocalTracks({ [kind]: { deviceId } });
-
-  // Stop the previous LocalTrack, if present.
-  if (localTracks[kind]) {
-    localTracks[kind].stop();
+async function applyInputDevice(kind, render) {
+  const localPeer = hmsStore.getState(selectLocalPeer);
+  if (kind === 'audio') {
+    const audioTrack = hmsStore.getState(selectAudioTrackByID(localPeer?.audioTrack));
+    await render(audioTrack);
+  } else {
+    const videoTrack = hmsStore.getState(selectVideoTrackByID(localPeer?.videoTrack));
+    await render(videoTrack);
   }
-
-  // Render the current LocalTrack.
-  localTracks[kind] = track;
-  render(track);
 }
 
 /**
@@ -34,8 +28,8 @@ async function applyInputDevice(kind, deviceId, render) {
  * @returns {Promise<MediaDeviceInfo[]>} the list of media devices
  */
 async function getInputDevices(kind) {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  return devices.filter(device => device.kind === `${kind}input`);
+  const devices = hmsStore.getState(selectDevices);
+  return kind === 'audio' ? devices.audioInput : devices.videoInput;
 }
 
 /**
@@ -48,13 +42,19 @@ async function getInputDevices(kind) {
 async function selectMedia(kind, $modal, render) {
   const $apply = $('button', $modal);
   const $inputDevices = $('select', $modal);
-  const setDevice = () => applyInputDevice(kind, $inputDevices.val(), render);
-
+  const setDevice = async () => {
+    if(kind === 'audio') {
+      await hmsActions.setAudioSettings({deviceId: $inputDevices.val()});
+    } else {
+      await hmsActions.setVideoSettings({deviceId: $inputDevices.val()});
+    }
+    await applyInputDevice(kind, render);
+  }
   // Get the list of available media input devices.
   let devices =  await getInputDevices(kind);
 
   // Apply the default media input device.
-  await applyInputDevice(kind, devices[0].deviceId, render);
+  await applyInputDevice(kind, render);
 
   // If all device IDs and/or labels are empty, that means they were
   // enumerated before the user granted media permissions. So, enumerate
@@ -86,12 +86,6 @@ async function selectMedia(kind, $modal, render) {
     // When the modal is closed, save the device ID.
     $modal.on('hidden.bs.modal', function onHide() {
       $modal.off('hidden.bs.modal', onHide);
-
-      // Stop the LocalTrack, if present.
-      if (localTracks[kind]) {
-        localTracks[kind].stop();
-        localTracks[kind] = null;
-      }
 
       // Resolve the Promise with the saved device ID.
       const deviceId = $inputDevices.val();
