@@ -12,9 +12,7 @@ require('dotenv').load();
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const { jwt: { AccessToken } } = require('twilio');
-
-const VideoGrant = AccessToken.VideoGrant;
+const HMS = require('@100mslive/server-sdk');
 
 // Max. period that a Participant is allowed to be in a Room (currently 14400 seconds or 4 hours)
 const MAX_ALLOWED_SESSION_DURATION = 14400;
@@ -22,34 +20,9 @@ const MAX_ALLOWED_SESSION_DURATION = 14400;
 // Create Express webapp.
 const app = express();
 
-// Set up the paths for the examples.
-[
-  'bandwidthconstraints',
-  'codecpreferences',
-  'dominantspeaker',
-  'localvideofilter',
-  'localvideosnapshot',
-  'mediadevices',
-  'networkquality',
-  'reconnection',
-  'screenshare',
-  'localmediacontrols',
-  'remotereconnection',
-  'datatracks',
-  'manualrenderhint',
-  'autorenderhint'
-].forEach(example => {
-  const examplePath = path.join(__dirname, `../examples/${example}/public`);
-  app.use(`/${example}`, express.static(examplePath));
-});
-
 // Set up the path for the quickstart.
 const quickstartPath = path.join(__dirname, '../quickstart/public');
 app.use('/quickstart', express.static(quickstartPath));
-
-// Set up the path for the examples page.
-const examplesPath = path.join(__dirname, '../examples');
-app.use('/examples', express.static(examplesPath));
 
 /**
  * Default to the Quick Start application.
@@ -63,27 +36,18 @@ app.get('/', (request, response) => {
  * username for the client requesting a token, and takes a device ID as a query
  * parameter.
  */
-app.get('/token', function(request, response) {
-  const { identity } = request.query;
+app.get('/token', async function(request, response) {
+  const { roomId, role} = request.query;
 
-  // Create an access token which we will sign and return to the client,
-  // containing the grant we just created.
-  const token = new AccessToken(
-    process.env.TWILIO_ACCOUNT_SID,
-    process.env.TWILIO_API_KEY,
-    process.env.TWILIO_API_SECRET,
-    { ttl: MAX_ALLOWED_SESSION_DURATION }
-  );
+  const hms = new HMS.SDK(process.env.HMS_ACCESS_KEY, process.env.HMS_SECRET);
 
-  // Assign the generated identity to the token.
-  token.identity = identity;
+  const authToken = await hms.auth.getAuthToken({
+    roomId,
+    role: role,
+    userId: "test_user",
+  });
 
-  // Grant the access token Twilio Video capabilities.
-  const grant = new VideoGrant();
-  token.addGrant(grant);
-
-  // Serialize the token to a JWT string.
-  response.send(token.toJwt());
+  response.send(authToken.token);
 });
 
 // Create http server and run it.

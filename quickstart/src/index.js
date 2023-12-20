@@ -1,8 +1,6 @@
 'use strict';
-
-const { isSupported } = require('twilio-video');
-
 const { isMobile } = require('./browser');
+const { hmsActions } = require('./hms');
 const joinRoom = require('./joinroom');
 const micLevel = require('./miclevel');
 const selectMedia = require('./selectmedia');
@@ -15,45 +13,6 @@ const $selectCameraModal = $('#select-camera', $modals);
 const $showErrorModal = $('#show-error', $modals);
 const $joinRoomModal = $('#join-room', $modals);
 
-// ConnectOptions settings for a video web application.
-const connectOptions = {
-  // Available only in Small Group or Group Rooms only. Please set "Room Type"
-  // to "Group" or "Small Group" in your Twilio Console:
-  // https://www.twilio.com/console/video/configure
-  bandwidthProfile: {
-    video: {
-      dominantSpeakerPriority: 'high',
-      mode: 'collaboration',
-      clientTrackSwitchOffControl: 'auto',
-      contentPreferencesMode: 'auto'
-    }
-  },
-
-  // Available only in Small Group or Group Rooms only. Please set "Room Type"
-  // to "Group" or "Small Group" in your Twilio Console:
-  // https://www.twilio.com/console/video/configure
-  dominantSpeaker: true,
-
-  // Comment this line if you are playing music.
-  maxAudioBitrate: 16000,
-
-  // VP8 simulcast enables the media server in a Small Group or Group Room
-  // to adapt your encoded video quality for each RemoteParticipant based on
-  // their individual bandwidth constraints. This has no utility if you are
-  // using Peer-to-Peer Rooms, so you can comment this line.
-  preferredVideoCodecs: [{ codec: 'VP8', simulcast: true }],
-
-  // Capture 720p video @ 24 fps.
-  video: { height: 720, frameRate: 24, width: 1280 }
-};
-
-// For mobile browsers, limit the maximum incoming video bitrate to 2.5 Mbps.
-if (isMobile) {
-  connectOptions
-    .bandwidthProfile
-    .video
-    .maxSubscriptionBitrate = 2500000;
-}
 
 // On mobile browsers, there is the possibility of not getting any media even
 // after the user has given permission, most likely due to some other app reserving
@@ -78,26 +37,24 @@ async function selectAndJoinRoom(error = null) {
     deviceIds.video = null;
     return selectMicrophone();
   }
-  const { identity, roomName } = formData;
+  const { identity } = formData;
 
   try {
-    // Fetch an AccessToken to join the Room.
-    const response = await fetch(`/token?identity=${identity}`);
-
-    // Extract the AccessToken from the Response.
-    const token = await response.text();
-
-    // Add the specified audio device ID to ConnectOptions.
-    connectOptions.audio = { deviceId: { exact: deviceIds.audio } };
-
-    // Add the specified Room name to ConnectOptions.
-    connectOptions.name = roomName;
-
-    // Add the specified video device ID to ConnectOptions.
-    connectOptions.video.deviceId = { exact: deviceIds.video };
+    const token = localStorage.getItem('token');
+    // config at the time of room join
+    const hmsConfig = {
+      userName: identity,
+      authToken: token,
+      settings: {
+        isAudioMuted: true,
+        isVideoMuted: false,
+        videoDeviceId: deviceIds.video,
+        audioInputDeviceId: deviceIds.audio,
+      }
+    }
 
     // Join the Room.
-    await joinRoom(token, connectOptions);
+    await joinRoom(hmsConfig);
 
     // After the video session, display the room selection modal.
     return selectAndJoinRoom();
@@ -112,9 +69,9 @@ async function selectAndJoinRoom(error = null) {
 async function selectCamera() {
   if (deviceIds.video === null) {
     try {
-      deviceIds.video = await selectMedia('video', $selectCameraModal, videoTrack => {
+      deviceIds.video = await selectMedia('video', $selectCameraModal, async videoTrack => {
         const $video = $('video', $selectCameraModal);
-        videoTrack.attach($video.get(0))
+        await hmsActions.attachVideo(videoTrack.id, $video.get(0));
       });
     } catch (error) {
       showError($showErrorModal, error);
@@ -133,7 +90,7 @@ async function selectMicrophone() {
       deviceIds.audio = await selectMedia('audio', $selectMicModal, audioTrack => {
         const $levelIndicator = $('svg rect', $selectMicModal);
         const maxLevel = Number($levelIndicator.attr('height'));
-        micLevel(audioTrack, maxLevel, level => $levelIndicator.attr('y', maxLevel - level));
+        micLevel(audioTrack.id, level => $levelIndicator.attr('y', maxLevel - level));
       });
     } catch (error) {
       showError($showErrorModal, error);
@@ -143,8 +100,28 @@ async function selectMicrophone() {
   return selectCamera();
 }
 
+async function preview() {
+  // getting room Id from url
+  const urlParams = new URLSearchParams(window.location.search);
+  const roomId = urlParams.get('roomId');
+  const role = urlParams.get('role');
+  const response = await fetch(`/token?roomId=${roomId}&role=${role}`);
+  const token = await response.text();
+
+  // preview join config
+  const hmsConfig = {
+    userName: '',
+    authToken: token,
+  }
+
+  await hmsActions.preview(hmsConfig);
+  localStorage.setItem('token', token);
+  await selectMicrophone();
+}
 // If the current browser is not supported by twilio-video.js, show an error
 // message. Otherwise, start the application.
-window.addEventListener('load', isSupported ? selectMicrophone : () => {
-  showError($showErrorModal, new Error('This browser is not supported.'));
+window.addEventListener('load', () => {
+  // clear token
+  localStorage.removeItem('token');
+  preview();
 });

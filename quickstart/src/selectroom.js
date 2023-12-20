@@ -13,13 +13,6 @@ function selectRoom($modal, error) {
   const $changeMedia = $('button.btn-dark', $modal);
   const $identity = $('#screen-name', $modal);
   const $join = $('button.btn-primary', $modal);
-  const $roomName = $('#room-name', $modal);
-
-  // If Room name is provided as a URL parameter, pre-populate the Room name field.
-  const { roomName } = getUrlParams();
-  if (roomName) {
-    $roomName.val(roomName);
-  }
 
   // If any previously saved user name exists, pre-populate the user name field.
   const identity = localStorage.getItem('userName');
@@ -47,11 +40,7 @@ function selectRoom($modal, error) {
 
       $join.click(function onJoin() {
         const identity = $identity.val();
-        const roomName = $roomName.val();
-        if (identity && roomName) {
-          // Append the Room name to the web application URL.
-          addUrlParams({ roomName });
-
+        if (identity) {
           // Save the user name.
           localStorage.setItem('userName', identity);
 
@@ -64,8 +53,7 @@ function selectRoom($modal, error) {
     $modal.on('hidden.bs.modal', function onHide() {
       $modal.off('hidden.bs.modal', onHide);
       const identity = $identity.val();
-      const roomName = $roomName.val();
-      resolve({ identity, roomName });
+      resolve({ identity });
     });
 
     $modal.modal({
